@@ -208,6 +208,49 @@ function setupHealthAlerts() {
     }, 60 * 60 * 1000);
 }
 
+let quickLinks = JSON.parse(localStorage.getItem('zentab-links')) || [
+    { name: 'Notas', url: 'https://naoxink.github.io/notas' }
+];
+
+function renderLinks() {
+    const container = document.getElementById('links-container');
+    container.innerHTML = '';
+    
+    quickLinks.forEach((link, index) => {
+        const a = document.createElement('a');
+        a.href = link.url;
+        a.className = 'link-icon';
+        a.target = '_blank';
+        a.textContent = link.name;
+        a.title = `Click derecho para eliminar "${link.name}"`
+        
+        // Clic derecho para eliminar un link
+        a.oncontextmenu = (e) => {
+            e.preventDefault();
+            if(confirm(`¿Eliminar ${link.name}?`)) {
+                quickLinks.splice(index, 1);
+                saveAndRender();
+            }
+        };
+        
+        container.appendChild(a);
+    });
+}
+
+function addNewLink() {
+    const name = prompt("Nombre del sitio (ej: ChatGPT):");
+    const url = prompt("URL (ej: https://chat.openai.com):");
+    
+    if (name && url) {
+        quickLinks.push({ name, url: url.startsWith('http') ? url : `https://${url}` });
+        saveAndRender();
+    }
+}
+
+function saveAndRender() {
+    localStorage.setItem('zentab-links', JSON.stringify(quickLinks));
+    renderLinks();
+}
 
 document.addEventListener('DOMContentLoaded', () => {
 
@@ -258,4 +301,5 @@ document.addEventListener('DOMContentLoaded', () => {
     if (typeof updateWeather === 'function') updateWeather();
     if (typeof showRandomQuote === 'function') showRandomQuote();
     if (typeof setupHealthAlerts === 'function') setupHealthAlerts();
+    if (typeof renderLinks === 'function') renderLinks();
 });
