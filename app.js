@@ -1,3 +1,6 @@
+let currentCityName = "";
+let currentCoords = { lat: 36.7202, lon: -4.4203 }; // Por defecto: Málaga por si no hay GPS
+
 // 1. RELOJ (Sencillo y eficiente)
 function updateClock() {
     const now = new Date();
@@ -18,20 +21,29 @@ function updateClock() {
 
 // 2. CAMBIADOR DE FONDO (Sin API Keys)
 async function refreshBackground() {
-    const btn = document.getElementById('refresh-bg');
-    if (btn) btn.style.transform = "rotate(360deg)";
+    const cacheBuster = Math.floor(Math.random() * 1000);
+    const initialUrl = `https://picsum.photos/1920/1080?random=${cacheBuster}`;
 
-    // 1. Pedimos una imagen aleatoria
-    const response = await fetch('https://picsum.photos/1920/1080');
+    try {
+        // Hacemos un fetch rápido. Picsum por defecto te redirige a la URL fija de la imagen (con su ID real)
+        const response = await fetch(initialUrl);
+        
+        // response.url contiene la dirección REAL final (ej: https://fastly.picsum.photos/id/XXX/1920/1080.jpg)
+        const finalStaticUrl = response.url; 
 
-    // 2. Picsum nos redirige a una URL fija con un ID real
-    // Ejemplo: https://fastly.picsum.photos/id/237/1920/1080.jpg...
-    const fixedUrl = response.url;
-
-    // 3. Aplicamos y guardamos esa URL específica, no la de "random"
-    applyBackground(fixedUrl);
-
-    if (btn) setTimeout(() => btn.style.transform = "rotate(0deg)", 1000);
+        // Precargamos la URL estática para que no haya parpadeos
+        const imgLoader = new Image();
+        imgLoader.src = finalStaticUrl;
+        imgLoader.onload = () => {
+            // ¡AHORA SÍ! Guardamos la URL fija en el localStorage. 
+            // Al recargar, Zentab leerá esta URL con el /id/XXX y mostrará EXACTAMENTE la misma foto.
+            applyBackground(finalStaticUrl)
+        };
+    } catch (error) {
+        console.error("Error al fijar el fondo:", error);
+        // Plan B rápido si falla el fetch
+        applyBackground(initialUrl)
+    }
 }
 
 // Función única para establecer el fondo
@@ -76,6 +88,7 @@ function updateStorage() {
     renderTasks();
     todoInput.focus(); // Para que puedas seguir escribiendo sin usar el ratón
 }
+
 function loadYoutube(mood, videoId) {
     const wrapper = document.getElementById('player-wrapper');
 
@@ -91,33 +104,10 @@ function loadYoutube(mood, videoId) {
                 allow="autoplay; encrypted-media">
             </iframe>`;
 }
+
 // 1. Cargar Clima (wttr.in es genial porque detecta tu IP)
-async function updateWeather() {
-    try {
-        // Usamos Open-Meteo, que es libre y permite peticiones desde cualquier web
-        const lat = 36.72; // Málaga
-        const lon = -4.42;
-        const response = await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current_weather=true`);
-
-        if (!response.ok) throw new Error();
-
-        const data = await response.json();
-        const temp = Math.round(data.current_weather.temperature);
-        const code = data.current_weather.weathercode;
-
-        // Mapeo simple de iconos según el código de Open-Meteo
-        let icon = "☀️";
-        if (code >= 1 && code <= 3) icon = "🌤️";
-        if (code >= 45 && code <= 48) icon = "☁️";
-        if (code >= 51 && code <= 67) icon = "🌧️";
-        if (code >= 71 && code <= 77) icon = "❄️";
-        if (code >= 95) icon = "⛈️";
-
-        document.getElementById('weather-info').textContent = `Málaga: ${icon} ${temp}°C`;
-    } catch (err) {
-        // Si incluso esto falla, al menos ponemos un mensaje honesto
-        document.getElementById('weather-info').textContent = "No hemos podido encontrar datos :(";
-    }
+function updateWeather() {
+    updateWeatherWithCoords(currentCoords.lat, currentCoords.lon);
 }
 
 // 2. Sistema de Frases
@@ -252,6 +242,70 @@ function saveAndRender() {
     renderLinks();
 }
 
+function initGeoDashboard() {
+    if (navigator.geolocation) {
+        navigator.geolocation.getCurrentPosition(
+            async (position) => { // Añadimos 'async' aquí para poder usar 'await'
+                currentCoords.lat = position.coords.latitude;
+                currentCoords.lon = position.coords.longitude;
+
+                // Llamamos a OpenStreetMap para recuperar el nombre de la ciudad
+                try {
+                    const response = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${currentCoords.lat}&lon=${currentCoords.lon}`);
+                    const data = await response.json();
+                    
+                    // Extraemos el nombre de la ciudad de forma segura
+                    currentCityName = data.address.city || data.address.town || data.address.village || data.address.county || "Tu ubicación";
+                } catch (error) {
+                    console.error("No se pudo obtener el nombre de la ciudad:", error);
+                    // Si falla la API del nombre, dejamos "Tu ubicación" o el por defecto para que no se rompa
+                }
+
+                // Ahora que tenemos coordenadas Y nombre, actualizamos todo
+                updateWeather();
+            },
+            (error) => {
+                console.warn("Ubicación denegada. Usando Málaga por defecto.");
+                updateWeather();
+            }
+        );
+    } else {
+        updateWeather();
+    }
+}
+
+function updateWeatherWithCoords(lat, lon) {
+// Asegúrate de que la URL pida 'current_weather=true' para tener el código de clima
+    const weatherUrl = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current_weather=true`;
+    
+    fetch(weatherUrl)
+        .then(res => res.json())
+        .then(data => {
+            const temp = Math.round(data.current_weather.temperature);
+            const code = data.current_weather.weathercode; // <--- Recuperamos el código numérico del clima
+            
+            // Diccionario de emojis según el WMO Weather code de Open-Meteo
+            const weatherEmojis = {
+                0: '☀️', // Despejado
+                1: '🌤️', 2: '⛅', 3: '☁️', // Nublado / Nuboso
+                45: '🌫️', 48: '🌫️', // Niebla
+                51: '🌧️', 53: '🌧️', 55: '🌧️', // Llovizna
+                61: '🌧️', 63: '🌧️', 65: '🌧️', // Lluvia fuerte
+                71: '❄️', 73: '❄️', 75: '❄️', // Nieve
+                80: '🌦️', 81: '🌧️', 82: '🌧️', // Chubascos
+                95: '⛈️', 96: '⛈️', 99: '⛈️'  // Tormenta
+            };
+
+            // Conseguimos el emoji correspondiente. Si viene un código raro, ponemos uno por defecto (🌤️)
+            const weatherEmoji = weatherEmojis[code] || '🌤️';
+            
+            // ¡Pintamos todo junto! 
+            // Resultado: 📍 Málaga ☀️ 18°C
+            document.getElementById('weather-info').textContent = `📍 ${currentCityName} ${weatherEmoji} ${temp}°C`;
+        })
+        .catch(err => console.error("Error en el clima:", err));
+}
+
 document.addEventListener('DOMContentLoaded', () => {
 
     const nameElement = document.getElementById('user-name');
@@ -302,6 +356,8 @@ document.addEventListener('DOMContentLoaded', () => {
     if (typeof showRandomQuote === 'function') showRandomQuote();
     if (typeof setupHealthAlerts === 'function') setupHealthAlerts();
     if (typeof renderLinks === 'function') renderLinks();
+    if (typeof initGeoDashboard === 'function') initGeoDashboard();
 
     document.querySelector('#weather-container').addEventListener('click', updateWeather)
+    document.getElementById('refresh-bg').addEventListener('click', refreshBackground);
 });
