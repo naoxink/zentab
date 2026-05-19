@@ -302,4 +302,6 @@ document.addEventListener('DOMContentLoaded', () => {
     if (typeof showRandomQuote === 'function') showRandomQuote();
     if (typeof setupHealthAlerts === 'function') setupHealthAlerts();
     if (typeof renderLinks === 'function') renderLinks();
+
+    document.querySelector('#weather-container').addEventListener('click', updateWeather)
 });
